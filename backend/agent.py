@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 import httpx
 from .database import ROOT, DATA, context, query, connect
+from . import stack
 
 STAGES=['快速分类','检索历史案例','理解问题','制定排查路径','收集证据','验证原因','输出与沉淀']
 TOOLS={
@@ -18,6 +19,9 @@ TOOLS={
  'config_diff': '读取该站点当前事件窗口的配置变更历史。',
  'read_registered_code': '读取登记的路线同步实现，不搜索其他文件。',
  'search_cases': '检索历史案例；相似案例仅复用路径，必须重新取证。',
+ 'query_warehouse': '读取真实 Doris 数仓在当前站点与事件窗口内的遥测聚合，需要完整栈已启用。',
+ 'inspect_live_cache': '读取真实 Redis 中的车辆路线快照与 TTL，需要完整栈已启用。',
+ 'check_data_pipeline': '检查真实 MySQL、Redis、Flink 作业、Doris 和 Java 查询服务状态。',
 }
 
 
@@ -84,6 +88,11 @@ class Harness:
                 with connect(self.engine.path) as c:
                     result=[dict(r) for r in c.execute(f'SELECT * FROM {table} WHERE station_id=? AND event_time BETWEEN ? AND ? ORDER BY id DESC LIMIT 100',(station,at,end))]
             elif name=='get_route_payload': result=self.engine.payload(station)
+            elif name in {'query_warehouse','inspect_live_cache','check_data_pipeline'}:
+                if not stack.enabled(): raise ValueError('真实数据链路未启用，禁止用轻量数据冒充')
+                if name=='query_warehouse': result=stack.warehouse(station,at,end)
+                elif name=='inspect_live_cache': result=stack.cache(station,[r['vehicle_id'] for r in self.engine.payload(station)],end)
+                else: result=stack.status()
             elif name=='inspect_cache':
                 ids=[r['vehicle_id'] for r in self.engine.payload(station)]
                 result=[{'vehicle_id':v,**self.engine.s['cache'].get(v,{}),'ttl_seconds':self.engine.s['cache'].get(v,{}).get('expires_at',0)-end} for v in ids]
@@ -150,6 +159,16 @@ class Harness:
             if any(r['level']=='ERROR' for r in logs['result']): conclusion['pending']=['服务已有错误但业务影响尚未显现；继续观察缓存 TTL 与后续调度决策。']
             conclusion['actions']=['若已恢复，核查工单恢复状态；若故障刚注入，推进模拟时钟后重新取证。']
         run['stage']=5
+        if stack.enabled():
+            try:
+                warehouse=self.tool(run,'query_warehouse')
+                rows=warehouse['result']['rows']
+                if rows:
+                    conclusion['verified'].append(f'[{warehouse["id"]}] 真实 Doris 当前事件窗口查询到 {rows[0]["events"]} 条遥测，最近事件时间 {rows[0]["last_event"]}。')
+                else: conclusion['pending'].append(f'[{warehouse["id"]}] Doris 尚未查到当前窗口数据，需要核查回灌进度与端到端延迟。')
+                self.tool(run,'inspect_live_cache')
+            except Exception as exc:
+                conclusion['pending'].append(f'真实组件取证未完成：{type(exc).__name__}；不以 SQLite 结果替代真实组件证据。')
         run['conclusion']=conclusion
 
     def model(self, run):

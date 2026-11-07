@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .database import ROOT, context, query, connect
 from .engine import Engine
 from .agent import Harness
+from . import stack
 
 app=FastAPI(title='FleetOps Lab',description='Synthetic fleet operations and read-only case solver')
 engine=Engine()
@@ -33,7 +34,10 @@ async def local_origin(request:Request, call_next):
 
 
 @app.get('/api/health')
-def health(): return {'status':'ok','mode':'lite','model_configured':bool(os.getenv('MODEL_API_KEY'))}
+def health(): return {'status':'ok','mode':'hybrid' if stack.enabled() else 'lite','stack_enabled':stack.enabled(),'model_configured':bool(os.getenv('MODEL_API_KEY'))}
+
+@app.get('/api/stack')
+def stack_status(): return stack.status()
 
 @app.get('/api/overview')
 def overview(): return engine.overview()
@@ -55,7 +59,9 @@ def advance(body:Advance): return engine.advance(body.seconds)
 def recover(): return engine.recover()
 
 @app.post('/api/sandbox/reset')
-def reset(): return engine.reset()
+def reset():
+    if stack.enabled(): raise ValueError('流处理模式采用连续事件时间，请先恢复当前故障再切换场景；重置会破坏 Flink 水位线。')
+    return engine.reset()
 
 @app.get('/api/vehicles')
 def vehicles(station:str='SZ-01'):
@@ -71,15 +77,29 @@ def trace(trace_id:str):
         return {t:[dict(r) for r in c.execute(f'SELECT * FROM {t} WHERE trace_id=?',(trace_id,))] for t in ('tasks','dispatch_attempts','logs')}
 
 @app.get('/api/data/context')
-def data_context(): return context(engine.path)
+def data_context(source:str='sqlite'):
+    if source=='sqlite': return context(engine.path)
+    if not stack.enabled(): raise ValueError('完整栈尚未启用')
+    try: return stack.context(source)
+    except Exception as exc: raise HTTPException(503,f'{source} 暂不可用：{type(exc).__name__}')
 
 class SQL(BaseModel):
     sql:str=Field(max_length=12000)
+    source:str='sqlite'
 
 @app.post('/api/data/query')
 def data_query(body:SQL):
-    try: return query(body.sql,engine.path)
+    try:
+        if body.source=='sqlite': return {**query(body.sql,engine.path),'source':'sqlite'}
+        if not stack.enabled(): raise ValueError('完整栈尚未启用')
+        return stack.query(body.sql,body.source)
     except Exception as exc: raise HTTPException(400,str(exc))
+
+@app.get('/api/replication/telemetry')
+def replication_telemetry(after:int=0,limit:int=5000):
+    if not 1<=limit<=10000 or after<0: raise ValueError('分页范围无效')
+    with connect(engine.path) as c:
+        return [dict(r) for r in c.execute('SELECT * FROM telemetry WHERE event_id>? ORDER BY event_id LIMIT ?',(after,limit))]
 
 class ToolRequest(BaseModel):
     station:str='SZ-01'

@@ -44,20 +44,22 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765
 | 配置 | 实际用途 | 状态 |
 | --- | --- | --- |
 | Lite | React / TypeScript / ECharts + FastAPI + SQLite + 本地 TTL 缓存 | 已执行功能测试与浏览器验证 |
-| Monitoring | Prometheus / Alertmanager / Grafana 读取沙箱 `/metrics` | 配置已提供，Docker 运行待验证 |
-| Full lab | Java / Spring Boot、MySQL、Redis、Kafka、Flink、Doris、复制桥接 | 源码与配置已提供，完整集成运行待验证 |
+| Monitoring | Prometheus / Alertmanager / Grafana 读取沙箱 `/metrics` | 已启动；Prometheus / Alertmanager 告警链路实测见验证记录 |
+| Full lab | Java / Spring Boot、MySQL、Redis、Kafka、Flink、Doris、复制桥接 | 真实组件已联通；百万条遥测回灌与查询实测见验证记录 |
 | Model | 兼容 Chat Completions 的真实工具调用循环 | 协议实现与模拟端点测试；未使用真实凭证调用 |
 
-当前电脑 Docker 引擎未运行，且可用内存有限，因此不宣称完整栈已经联调通过。Full lab 是由同一沙箱复制到真实组件的扩展实验，前端仍使用 Lite 数据源；Java 服务提供真实 MySQL / Redis 读取接口。
+Full lab 使用同一沙箱生成事件，实际经过 Kafka → Flink → Doris。SQL 工作台可显式切换 SQLite / MySQL / Doris；Agent 回放额外查询 Doris 与 Redis。运营看板与基础诊断证据仍来自模拟器，Java 服务提供真实 MySQL / Redis 读取接口。完整链路为单机实验，不代表生产部署。
 
 ```sh
 # 仅容器化 Lite
 docker compose up --build -d app
 
-# 启用真实监控（Grafana :3000，Prometheus :9090，Alertmanager :9093）
+# 启用真实监控（Grafana :3001，Prometheus :9090，Alertmanager :9093）
 docker compose --profile monitoring up --build -d
 
 # 完整数据栈，建议为 Docker 预留至少 10 GB 内存；按需启动
+# PowerShell：$env:FULL_STACK_ENABLED="1"; $env:FLEET_HTTP_PORT="18765"
+# bash/zsh：export FULL_STACK_ENABLED=1 FLEET_HTTP_PORT=18765
 docker compose --profile full up --build -d
 # 服务就绪后提交一次 Flink SQL 作业（不要重复提交同一作业）
 docker compose exec jobmanager ./bin/sql-client.sh -f /opt/flink/pipeline.sql
@@ -74,9 +76,11 @@ docker compose exec jobmanager ./bin/sql-client.sh -f /opt/flink/pipeline.sql
 5. 点击“恢复沙箱”，再推进数分钟清理积压；填写结案结论并关闭工单。
 6. 在“案例知识库”打开记录并下载 Markdown。
 
+Agent 的完整设计、案例推演与面试追问见 **[无人车 Agent 设计与实践](docs/fleet-agent-design.md)**。
+
 更完整的讲解见 [10 分钟演示脚本](docs/demo.md)、[架构与技术选型](docs/architecture.md)、[人工排查 SOP](docs/runbook.md)。
 
-## 真实模型模式
+## 可选真实模型模式（本次面试演示不需要）
 
 复制 `.env.example` 为本地 `.env`，填写 `MODEL_API_KEY`、`MODEL_BASE_URL` 和 `MODEL_NAME`。不要将密钥提交到 Git，也不要在聊天中粘贴密钥。
 

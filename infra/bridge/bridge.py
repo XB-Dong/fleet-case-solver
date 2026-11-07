@@ -28,7 +28,7 @@ def sink():
             consumer=KafkaConsumer('fleet.telemetry.clean','fleet.station.minute',bootstrap_servers='kafka:29092',group_id='fleet-doris-v1',auto_offset_reset='earliest',enable_auto_commit=False,value_deserializer=lambda b:json.loads(b))
             with httpx.Client(timeout=60,follow_redirects=True) as client:
                 while True:
-                    batches=consumer.poll(timeout_ms=1000,max_records=500)
+                    batches=consumer.poll(timeout_ms=1000,max_records=5000)
                     for partition, records in batches.items():
                         table='telemetry_clean' if partition.topic.endswith('clean') else 'station_minute'
                         # Stream Load directly to the local BE HTTP port avoids FE redirect/auth differences.
@@ -39,24 +39,35 @@ def sink():
                             raise RuntimeError('Doris rejected batch: '+json.dumps(loaded))
                     if batches: consumer.commit()
         except Exception as e:
-            print('sink retry:',type(e).__name__,flush=True)
+            print('sink retry:',type(e).__name__,str(e)[:500],flush=True)
             try: consumer.close()
             except (NameError,Exception): pass
             time.sleep(10)
 
 def source():
     producer=KafkaProducer(bootstrap_servers='kafka:29092',value_serializer=lambda v:json.dumps(v).encode(),acks='all')
+    # Separate Redis DB from route caches. Persist only after Kafka acknowledges the batch.
+    checkpoint=redis.Redis(host='redis',db=1,decode_responses=True)
+    last_event=int(checkpoint.get('fleet:source:last_event') or 0)
+    with httpx.Client(timeout=40,trust_env=False) as client:
+        while True:
+            r=client.get(API+'/replication/telemetry',params={'after':last_event,'limit':5000})
+            r.raise_for_status(); rows=r.json()
+            if not rows:
+                time.sleep(2); continue
+            pending=[producer.send('fleet.telemetry.raw',row) for row in rows]
+            producer.flush(timeout=30)
+            for future in pending: future.get(timeout=30)
+            last_event=rows[-1]['event_id']
+            checkpoint.set('fleet:source:last_event',last_event)
+            if last_event%100000==0: print('source sent:',last_event,flush=True)
+
+def snapshots():
     cache=redis.Redis(host='redis',decode_responses=True)
     db=connect_mysql()
-    last_event=0; last_clock=None; revision=None
-    with httpx.Client(timeout=40) as client:
+    with httpx.Client(timeout=40,trust_env=False) as client:
         while True:
             overview=client.get(API+'/overview'); overview.raise_for_status(); o=overview.json()
-            if last_clock is not None and o['clock']<last_clock:
-                # Explicit reset: remove replicated mutable state; telemetry IDs restart in the sandbox.
-                last_event=0
-                with db.cursor() as c: c.execute('DELETE FROM tasks')
-            last_clock=o['clock']
             for station in o['stations']:
                 sid=station['station_id']
                 vs=client.get(API+'/vehicles',params={'station':sid}).json()
@@ -72,20 +83,16 @@ def source():
                     key='fleet:route:'+row['vehicle_id']; ttl=int(row['ttl_seconds'])
                     if ttl>0: cache.set(key,json.dumps(row),ex=ttl)
                     else: cache.delete(key)
-            # Page actual DB rows, not fabricated snapshots. Pause does not advance the event clock.
-            while True:
-                sql=f'SELECT * FROM telemetry WHERE event_id>{last_event} ORDER BY event_id LIMIT 200'
-                result=client.post(API+'/data/query',json={'sql':sql});result.raise_for_status();rows=result.json()['rows']
-                if not rows: break
-                pending=[producer.send('fleet.telemetry.raw',row) for row in rows]
-                producer.flush(timeout=30)
-                for future in pending: future.get(timeout=30)
-                last_event=rows[-1]['event_id']
             time.sleep(5)
+
+def supervise(fn):
+    while True:
+        try: fn()
+        except Exception as e:
+            print(fn.__name__,'retry:',type(e).__name__,str(e)[:250],flush=True)
+            time.sleep(10)
 
 if __name__=='__main__':
     threading.Thread(target=sink,daemon=True).start()
-    while True:
-        try: source()
-        except Exception as e:
-            print('source retry:',type(e).__name__,flush=True);time.sleep(10)
+    threading.Thread(target=supervise,args=(snapshots,),daemon=True).start()
+    supervise(source)

@@ -1,4 +1,6 @@
 CREATE DATABASE IF NOT EXISTS fleet;
+CREATE USER IF NOT EXISTS 'fleet_reader' IDENTIFIED BY 'fleet_reader_demo';
+GRANT SELECT_PRIV ON fleet.* TO 'fleet_reader';
 CREATE TABLE IF NOT EXISTS fleet.telemetry_clean (
  event_id BIGINT, vehicle_id VARCHAR(32), station_id VARCHAR(32), event_time BIGINT,
  ingest_time BIGINT, battery DOUBLE, speed DOUBLE, online INT, lag_seconds BIGINT

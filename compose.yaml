@@ -4,12 +4,25 @@ services:
     build:
       context: .
       dockerfile: infra/Dockerfile
-    ports: ["127.0.0.1:8765:8765"]
+    ports: ["127.0.0.1:${FLEET_HTTP_PORT:-8765}:8765"]
     volumes: ["fleet-data:/app/data"]
     environment:
       MODEL_BASE_URL: ${MODEL_BASE_URL:-https://api.openai.com/v1}
       MODEL_NAME: ${MODEL_NAME:-gpt-4.1-mini}
       MODEL_API_KEY: ${MODEL_API_KEY:-}
+      FULL_STACK_ENABLED: ${FULL_STACK_ENABLED:-0}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_READ_USER: fleet_reader
+      MYSQL_READ_PASSWORD: fleet_reader_demo
+      DORIS_HOST: doris
+      DORIS_PORT: 9030
+      DORIS_READ_USER: fleet_reader
+      DORIS_READ_PASSWORD: fleet_reader_demo
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FLINK_URL: http://jobmanager:8081
+      BUSINESS_URL: http://business:8080
   prometheus:
     image: prom/prometheus:v3.2.1
     profiles: [monitoring, full]
@@ -25,7 +38,7 @@ services:
   grafana:
     image: grafana/grafana:11.6.0
     profiles: [monitoring, full]
-    ports: ["127.0.0.1:3000:3000"]
+    ports: ["127.0.0.1:${GRAFANA_HTTP_PORT:-3001}:3000"]
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
@@ -70,6 +83,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_HEAP_OPTS: -Xms128m -Xmx384m
+    mem_limit: 768m
   jobmanager:
     build: ./infra/flink
     profiles: [full]
@@ -79,6 +94,8 @@ services:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         parallelism.default: 1
+        jobmanager.memory.process.size: 768m
+    mem_limit: 1024m
     volumes: ["./infra/flink/pipeline.sql:/opt/flink/pipeline.sql:ro"]
   taskmanager:
     build: ./infra/flink
@@ -89,12 +106,14 @@ services:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 2
-        taskmanager.memory.process.size: 1536m
+        taskmanager.memory.process.size: 1024m
+    mem_limit: 1280m
   doris:
-    image: apache/doris:4.0.3-all-slim
+    build: ./infra/doris
     profiles: [full]
     ports: ["127.0.0.1:8030:8030", "127.0.0.1:9030:9030"]
     privileged: false
+    mem_limit: 4096m
     environment:
       SKIP_CHECK_ULIMIT: 'true'
     ulimits:

@@ -1,4 +1,6 @@
 USE fleet;
+CREATE USER IF NOT EXISTS 'fleet_reader'@'%' IDENTIFIED BY 'fleet_reader_demo';
+GRANT SELECT ON fleet.* TO 'fleet_reader'@'%';
 CREATE TABLE IF NOT EXISTS vehicles (
  vehicle_id VARCHAR(32) PRIMARY KEY, station_id VARCHAR(32), battery DOUBLE,
  online BOOLEAN, dispatchable BOOLEAN, longitude DOUBLE, latitude DOUBLE, heartbeat_at BIGINT,
