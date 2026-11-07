@@ -77,7 +77,9 @@ def source():
                 sql=f'SELECT * FROM telemetry WHERE event_id>{last_event} ORDER BY event_id LIMIT 200'
                 result=client.post(API+'/data/query',json={'sql':sql});result.raise_for_status();rows=result.json()['rows']
                 if not rows: break
-                for row in rows: producer.send('fleet.telemetry.raw',row).get(timeout=30)
+                pending=[producer.send('fleet.telemetry.raw',row) for row in rows]
+                producer.flush(timeout=30)
+                for future in pending: future.get(timeout=30)
                 last_event=rows[-1]['event_id']
             time.sleep(5)
 

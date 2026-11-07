@@ -1,6 +1,7 @@
 import json
 import threading
 import uuid
+import traceback
 from pathlib import Path
 from .database import DB, BASE_TIME, connect, seed
 from .route_sync import sync_routes, sync_routes_fixed
@@ -85,7 +86,8 @@ class Engine:
                                 skipped=fn(self.payload(station,c),self.s['cache'],now)
                                 self.log(c,'route-sync','INFO',station,f'sync-{now}-{station}',f'batch committed; skipped={skipped or []}; ttl=600s')
                             except IndexError as exc:
-                                self.log(c,'route-sync','ERROR',station,f'sync-{now}-{station}',f'{type(exc).__name__}: {exc}; batch aborted before cache commit; backend/route_sync.py:9')
+                                line=traceback.extract_tb(exc.__traceback__)[-1].lineno
+                                self.log(c,'route-sync','ERROR',station,f'sync-{now}-{station}',f'{type(exc).__name__}: {exc}; batch aborted before cache commit; backend/route_sync.py:{line}')
                         lag=now-self.s['last_ingest'] if self.s['fault']=='lag' and station==self.s['station'] else 2
                         eligible=[]
                         for v in vs:

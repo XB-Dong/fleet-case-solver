@@ -91,10 +91,14 @@ services:
         taskmanager.numberOfTaskSlots: 2
         taskmanager.memory.process.size: 1536m
   doris:
-    image: apache/doris:3.0.8-all
+    image: apache/doris:4.0.3-all-slim
     profiles: [full]
     ports: ["127.0.0.1:8030:8030", "127.0.0.1:9030:9030"]
     privileged: false
+    environment:
+      SKIP_CHECK_ULIMIT: 'true'
+    ulimits:
+      nofile: {soft: 65535, hard: 65535}
     # All-in-one image is a disposable lab node; keep authoritative data in the sandbox.
   business:
     build: ./services/business

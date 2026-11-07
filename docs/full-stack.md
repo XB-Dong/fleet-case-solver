@@ -28,7 +28,7 @@ Lite /metrics ── Prometheus ── Alertmanager / Grafana
 8. Doris SQL 端口 9030，查询 `fleet.telemetry_clean` 和 `fleet.station_minute`；不能只看容器 up 就宣称数据打通。
 9. Grafana <http://127.0.0.1:3000> 查看 FleetOps Dashboard。
 
-首次回灌百万行可能需要较长时间。镜像与 connector 下载需要联网。Doris 单节点镜像仅用于实验；若当前平台无法运行，请按 [Doris 官方快速部署文档](https://doris.apache.org/docs/3.x/gettingStarted/quick-start/) 调整版本与主机参数，不能静默替换成 SQLite 后仍声称 Doris 已运行。
+首次回灌百万行可能需要较长时间。镜像与 connector 下载需要联网。Doris 使用官方 [Compose 文档](https://doris.apache.org/docs/dev/observability/dogstack/docker/) 所列的 `4.0.3-all-slim`，仅用于连接性实验；本配置不授予 privileged 权限。若当前平台无法运行，应检查宿主机内存映射与文件句柄参数，不能静默替换成 SQLite 后仍声称 Doris 已运行。
 
 Flink Docker 与 SQL connector 参考 [官方 Docker 文档](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/resource-providers/standalone/docker/)。固定为 Flink 1.20.x 与匹配 connector，避免任意混搭版本。
 
