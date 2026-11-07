@@ -1,0 +1,17 @@
+groups:
+  - name: fleet-business
+    rules:
+      - alert: FleetDispatchDegraded
+        expr: fleet_success_rate < 0.8
+        for: 15s
+        labels: {severity: warning, team: fleet-oncall}
+        annotations:
+          summary: 'Dispatch degraded at {{ $labels.station }}'
+          description: 'Check heartbeat, dispatch rejection reasons, route cache and configuration audit.'
+      - alert: FleetTelemetryStale
+        expr: fleet_lag_seconds > 180
+        for: 15s
+        labels: {severity: warning, team: fleet-oncall}
+        annotations:
+          summary: 'Telemetry is stale at {{ $labels.station }}'
+          description: 'Compare live heartbeat with event and ingest time before declaring vehicles offline.'

@@ -1,0 +1,10 @@
+材料
+.git
+.venv
+node_modules
+data
+runtime
+.env
+dist
+**/__pycache__
+*.pdf

@@ -1,0 +1,17 @@
+材料/
+**/材料/
+*.pdf
+.env
+.env.*
+!.env.example
+data/
+runtime/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.log
+.venv/
+target/
+.DS_Store
